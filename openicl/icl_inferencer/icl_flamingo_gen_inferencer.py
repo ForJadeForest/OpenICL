@@ -61,6 +61,7 @@ class FlamingoGenInferencer(BaseInferencer):
                  tokenizer_name: Optional[str] = None,
                  image_processor=None,
                  image_field='',
+                 autocast_context=None,
                  max_model_token_num: Optional[int] = None,
                  model_config: Optional[PretrainedConfig] = None,
                  batch_size: Optional[int] = 1,
@@ -79,6 +80,7 @@ class FlamingoGenInferencer(BaseInferencer):
         self.generation_kwargs = generation_kwargs
         self.image_processor = image_processor
         self.image_field = image_field
+        self.autocast_context = autocast_context
 
     def inference(self, retriever: BaseRetriever, ice_template: Optional[PromptTemplate] = None,
                   prompt_template: Optional[PromptTemplate] = None, output_json_filepath: Optional[str] = None,
@@ -95,8 +97,9 @@ class FlamingoGenInferencer(BaseInferencer):
 
         # 2. Get results of retrieval process
         ice_idx_list = retriever.retrieve()
-
+        
         # 3. Generate prompts for testing input
+        logger.info('begin concat the prompt...')
         prompt_list = get_generation_prompt_list_from_retriever_indices(ice_idx_list, retriever, self.tokenizer,
                                                                         self.gen_field_replace_token,
                                                                         max_model_token_num=self.max_model_token_num,
@@ -113,34 +116,34 @@ class FlamingoGenInferencer(BaseInferencer):
             vision_x = get_generation_vision_x_from_retriever_indices(sub_ice_idx_list, retriever,
                                                                       self.image_processor, self.image_field)
             # 5-1. Inference with local model
-
-            with torch.no_grad():
-                tokenized_data = self.tokenizer.batch_encode_plus(text_entry, padding=True, return_tensors='pt').to(
-                    self.device)
-                prompt_len = int(tokenized_data.attention_mask.shape[1])
-                if force_words is not None:
-                    force_words_ids = [
-                        self.tokenizer(force_words).input_ids,
-                    ]
-                    outputs = self.model.generate(vision_x=vision_x,
-                                                  lang_x=tokenized_data.input_ids,
-                                                  attention_mask=tokenized_data.attention_mask,
-                                                  force_words_ids=force_words_ids,
-                                                  num_beams=10,
-                                                  eos_token_id=self.tokenizer.eos_token_id,
-                                                  pad_token_id=self.tokenizer.pad_token_id,
-                                                  **self.generation_kwargs)
-                else:
-                    outputs = self.model.generate(vision_x=vision_x,
-                                                  lang_x=tokenized_data.input_ids,
-                                                  attention_mask=tokenized_data.attention_mask,
-                                                  eos_token_id=self.tokenizer.eos_token_id,
-                                                  pad_token_id=self.tokenizer.pad_token_id,
-                                                  **self.generation_kwargs)
-                outputs = outputs.tolist()
-                complete_output = self.tokenizer.batch_decode(outputs[:], skip_special_tokens=True)
-                generated = self.tokenizer.batch_decode([output[prompt_len:] for output in outputs],
-                                                        skip_special_tokens=True)
+            with self.autocast_context:
+                with torch.no_grad():
+                    tokenized_data = self.tokenizer.batch_encode_plus(text_entry, padding=True, return_tensors='pt').to(
+                        self.device)
+                    prompt_len = int(tokenized_data.attention_mask.shape[1])
+                    if force_words is not None:
+                        force_words_ids = [
+                            self.tokenizer(force_words).input_ids,
+                        ]
+                        outputs = self.model.generate(vision_x=vision_x,
+                                                    lang_x=tokenized_data.input_ids,
+                                                    attention_mask=tokenized_data.attention_mask,
+                                                    force_words_ids=force_words_ids,
+                                                    num_beams=10,
+                                                    eos_token_id=self.tokenizer.eos_token_id,
+                                                    pad_token_id=self.tokenizer.pad_token_id,
+                                                    **self.generation_kwargs)
+                    else:
+                        outputs = self.model.generate(vision_x=vision_x,
+                                                    lang_x=tokenized_data.input_ids,
+                                                    attention_mask=tokenized_data.attention_mask,
+                                                    eos_token_id=self.tokenizer.eos_token_id,
+                                                    pad_token_id=self.tokenizer.pad_token_id,
+                                                    **self.generation_kwargs)
+                    outputs = outputs.tolist()
+                    complete_output = self.tokenizer.batch_decode(outputs[:], skip_special_tokens=True)
+                    generated = self.tokenizer.batch_decode([output[prompt_len:] for output in outputs],
+                                                            skip_special_tokens=True)
 
             # 5-3. Save current output
             for prediction, output in zip(generated, complete_output):
