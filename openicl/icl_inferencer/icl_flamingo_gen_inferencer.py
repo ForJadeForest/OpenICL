@@ -38,7 +38,7 @@ class FlamingoGenInferencerOutputHandler(GenInferencerOutputHandler):
             self.origin_image_dict[str(idx)] = origin_prompt
 
 
-class GenInferencer(BaseInferencer):
+class FlamingoGenInferencer(BaseInferencer):
     """Generation In-context Learning Inferencer Class
         In-context Learning Inferencer for Directly Generation.
 
