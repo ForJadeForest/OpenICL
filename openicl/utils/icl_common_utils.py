@@ -1,3 +1,4 @@
+import torch
 from torch.utils.data import DataLoader
 from openicl.icl_retriever import BaseRetriever
 from typing import List, Union, Optional
@@ -32,6 +33,21 @@ def get_generation_prompt_list_from_retriever_indices(ice_idx_list: List[List[in
                 prompt_token_num = get_input_token_num(tokenizer, prompt)
         prompt_list.append(prompt)
     return prompt_list
+
+
+def get_generation_vision_x_from_retriever_indices(ice_idx_list: List[List[str]], retriever: BaseRetriever,
+                                                   image_processor, image_field='image'):
+    image_inputs = []
+    for idx, ice_idx, in enumerate(ice_idx_list):
+        image = retriever.index_ds[idx][image_field]
+        ice_image_list = [retriever.index_ds[i][image_field] for i in ice_idx]
+        ice_image_list = [image_processor(img) for img in ice_image_list] + [image_processor(image)]
+        ice_image = torch.stack(ice_image_list, dim=0)
+        image_inputs.append(ice_image)
+
+    image_inputs = torch.stack(image_inputs, dim=0)
+    image_inputs = image_inputs.unsqueeze(dim=2)
+    return image_inputs
 
 
 def get_input_token_num(tokenizer, input):
