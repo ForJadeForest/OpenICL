@@ -1,12 +1,12 @@
-"""Direct Generation Inferencer"""
-
 from typing import List, Optional
 
 import more_itertools
+import json
 import torch
 from accelerate import Accelerator
 from tqdm import tqdm
 from transformers import PretrainedConfig
+from datasets import Dataset
 
 from openicl import PromptTemplate
 from openicl.icl_inferencer.icl_base_inferencer import BaseInferencer, GenInferencerOutputHandler
@@ -29,13 +29,38 @@ class FlamingoGenInferencerOutputHandler(GenInferencerOutputHandler):
                  num: int,
                  accelerator: Optional[Accelerator] = None):
         super().__init__(num, accelerator)
-        self.origin_image_dict = {}
+        self.other_meta_info_dict = {}
 
-    def save_orgin_image(self, image_list: List[str]):
-        for idx, origin_prompt in enumerate(image_list):
+    def save_origin_info(self, meta_field: str, test_ds: Dataset):
+        meta_dict = {}
+        meta_list = test_ds[meta_field]
+        for idx, m_d in enumerate(meta_list):
             if self.accelerator is not None:
                 idx = idx * self.accelerator.num_processes + self.accelerator.process_index
-            self.origin_image_dict[str(idx)] = origin_prompt
+            meta_dict[str(idx)] = m_d
+        self.other_meta_info_dict[meta_field] = meta_dict
+
+    def subprocess_write_to_json(self, output_json_filepath: str, output_json_filename: str):
+        self.results_dict = {
+            str(idx): {
+                'origin_prompt': self.origin_prompt_dict[str(idx)],
+                'output': self.output_dict[str(idx)],
+                'prediction': self.prediction_dict[str(idx)],
+            } for idx in self.origin_prompt_dict.keys()
+        }
+        for field in self.other_meta_info_dict:
+            for idx in self.origin_prompt_dict.keys():
+                if field in self.results_dict[str(idx)]:
+                    logger.warning(
+                        'the other meta info field name has duplicate! Please check for avoiding to losing info')
+                    continue
+                self.results_dict[str(idx)][field] = self.other_meta_info_dict[field][str(idx)]
+
+        if self.accelerator is not None:
+            with open(f'{output_json_filepath}/process{self.accelerator.process_index}_{output_json_filename}.json',
+                      'w', encoding='utf-8') as json_file:
+                json.dump(self.results_dict, json_file, indent=4, ensure_ascii=False)
+                json_file.close()
 
 
 class FlamingoGenInferencer(BaseInferencer):
@@ -61,6 +86,7 @@ class FlamingoGenInferencer(BaseInferencer):
                  tokenizer_name: Optional[str] = None,
                  image_processor=None,
                  image_field='',
+                 other_save_field: Optional[List] = None,
                  autocast_context=None,
                  max_model_token_num: Optional[int] = None,
                  model_config: Optional[PretrainedConfig] = None,
@@ -80,8 +106,10 @@ class FlamingoGenInferencer(BaseInferencer):
         self.generation_kwargs = generation_kwargs
         self.image_processor = image_processor
         self.image_field = image_field
+        self.other_save_field = other_save_field
         self.autocast_context = autocast_context
 
+    @torch.inference_mode()
     def inference(self, retriever: BaseRetriever, ice_template: Optional[PromptTemplate] = None,
                   prompt_template: Optional[PromptTemplate] = None, output_json_filepath: Optional[str] = None,
                   output_json_filename: Optional[str] = None, force_words=None) -> List:
@@ -97,7 +125,7 @@ class FlamingoGenInferencer(BaseInferencer):
 
         # 2. Get results of retrieval process
         ice_idx_list = retriever.retrieve()
-        
+
         # 3. Generate prompts for testing input
         logger.info('begin concat the prompt...')
         prompt_list = get_generation_prompt_list_from_retriever_indices(ice_idx_list, retriever, self.tokenizer,
@@ -106,6 +134,8 @@ class FlamingoGenInferencer(BaseInferencer):
                                                                         ice_template=ice_template,
                                                                         prompt_template=prompt_template)
         output_handler.save_orgin_prompts(prompt_list)
+        for fields in self.other_save_field:
+            output_handler.save_origin_info(fields, retriever.test_ds)
 
         # 4. Inference for prompts in each batch
         logger.info("Starting inference process...")
@@ -113,37 +143,38 @@ class FlamingoGenInferencer(BaseInferencer):
                                                self.batch_size):
             text_entry = [prompt_list[i] for i in idx_list]
             sub_ice_idx_list = [ice_idx_list[idx] for idx in idx_list]
-            vision_x = get_generation_vision_x_from_retriever_indices(sub_ice_idx_list, retriever,
-                                                                      self.image_processor, self.image_field)
+            vision_x = get_generation_vision_x_from_retriever_indices(sub_ice_idx_list, retriever, self.image_processor,
+                                                                      self.image_field).to(self.device)
             # 5-1. Inference with local model
             with self.autocast_context:
-                with torch.no_grad():
-                    tokenized_data = self.tokenizer.batch_encode_plus(text_entry, padding=True, return_tensors='pt').to(
-                        self.device)
-                    prompt_len = int(tokenized_data.attention_mask.shape[1])
-                    if force_words is not None:
-                        force_words_ids = [
-                            self.tokenizer(force_words).input_ids,
-                        ]
-                        outputs = self.model.generate(vision_x=vision_x,
-                                                    lang_x=tokenized_data.input_ids,
-                                                    attention_mask=tokenized_data.attention_mask,
-                                                    force_words_ids=force_words_ids,
-                                                    num_beams=10,
-                                                    eos_token_id=self.tokenizer.eos_token_id,
-                                                    pad_token_id=self.tokenizer.pad_token_id,
-                                                    **self.generation_kwargs)
-                    else:
-                        outputs = self.model.generate(vision_x=vision_x,
-                                                    lang_x=tokenized_data.input_ids,
-                                                    attention_mask=tokenized_data.attention_mask,
-                                                    eos_token_id=self.tokenizer.eos_token_id,
-                                                    pad_token_id=self.tokenizer.pad_token_id,
-                                                    **self.generation_kwargs)
-                    outputs = outputs.tolist()
-                    complete_output = self.tokenizer.batch_decode(outputs[:], skip_special_tokens=True)
-                    generated = self.tokenizer.batch_decode([output[prompt_len:] for output in outputs],
-                                                            skip_special_tokens=True)
+                tokenized_data = self.tokenizer.batch_encode_plus(
+                    text_entry, padding=True, return_tensors='pt').to(self.device)
+
+                prompt_len = int(tokenized_data.attention_mask.shape[1])
+                if force_words is not None:
+                    force_words_ids = [
+                        self.tokenizer(force_words).input_ids,
+                    ]
+                    outputs = self.model.generate(vision_x=vision_x,
+                                                  lang_x=tokenized_data.input_ids,
+                                                  attention_mask=tokenized_data.attention_mask,
+                                                  force_words_ids=force_words_ids,
+                                                  num_beams=10,
+                                                  eos_token_id=self.tokenizer.eos_token_id,
+                                                  pad_token_id=self.tokenizer.pad_token_id,
+                                                  **self.generation_kwargs)
+                else:
+                    outputs = self.model.generate(vision_x=vision_x,
+                                                  lang_x=tokenized_data.input_ids,
+                                                  attention_mask=tokenized_data.attention_mask,
+                                                  eos_token_id=self.tokenizer.eos_token_id,
+                                                  pad_token_id=self.tokenizer.pad_token_id,
+                                                  **self.generation_kwargs)
+                outputs = outputs.tolist()
+                complete_output = self.tokenizer.batch_decode(
+                    outputs[:], skip_special_tokens=True)
+                generated = self.tokenizer.batch_decode([output[prompt_len:] for output in outputs],
+                                                        skip_special_tokens=True)
 
             # 5-3. Save current output
             for prediction, output in zip(generated, complete_output):
