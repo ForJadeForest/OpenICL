@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Union
 
 import more_itertools
 import json
@@ -112,7 +112,7 @@ class FlamingoGenInferencer(BaseInferencer):
     @torch.inference_mode()
     def inference(self, retriever: BaseRetriever, ice_template: Optional[PromptTemplate] = None,
                   prompt_template: Optional[PromptTemplate] = None, output_json_filepath: Optional[str] = None,
-                  output_json_filename: Optional[str] = None, force_words=None) -> List:
+                  output_json_filename: Optional[str] = None, force_words=None, return_dict=False) -> Union[List, Dict]:
         # 1. Preparation for output logs
         num = len(retriever.test_ds)
         output_handler = FlamingoGenInferencerOutputHandler(num, self.accelerator)
@@ -143,7 +143,8 @@ class FlamingoGenInferencer(BaseInferencer):
                                                self.batch_size):
             text_entry = [prompt_list[i] for i in idx_list]
             sub_ice_idx_list = [ice_idx_list[idx] for idx in idx_list]
-            vision_x = get_generation_vision_x_from_retriever_indices(sub_ice_idx_list, retriever, self.image_processor,
+            vision_x = get_generation_vision_x_from_retriever_indices(idx_list, sub_ice_idx_list, retriever,
+                                                                      self.image_processor,
                                                                       self.image_field).to(self.device)
             # 5-1. Inference with local model
             with self.autocast_context:
@@ -171,10 +172,8 @@ class FlamingoGenInferencer(BaseInferencer):
                                                   pad_token_id=self.tokenizer.pad_token_id,
                                                   **self.generation_kwargs)
                 outputs = outputs.tolist()
-                complete_output = self.tokenizer.batch_decode(
-                    outputs[:], skip_special_tokens=True)
-                generated = self.tokenizer.batch_decode([output[prompt_len:] for output in outputs],
-                                                        skip_special_tokens=True)
+                complete_output = self.tokenizer.batch_decode(outputs[:], skip_special_tokens=False)
+                generated = self.tokenizer.batch_decode([output[prompt_len:] for output in outputs], skip_special_tokens=True)
 
             # 5-3. Save current output
             for prediction, output in zip(generated, complete_output):
@@ -187,4 +186,6 @@ class FlamingoGenInferencer(BaseInferencer):
             self.accelerator.wait_for_everyone()
         output_handler.merge_to_main_process(output_json_filepath, output_json_filename)
         output_handler.write_to_json(output_json_filepath, output_json_filename)
+        if return_dict:
+            return output_handler.results_dict
         return [sample['prediction'] for sample in output_handler.results_dict.values()]
