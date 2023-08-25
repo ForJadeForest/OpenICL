@@ -35,11 +35,11 @@ def get_generation_prompt_list_from_retriever_indices(ice_idx_list: List[List[in
     return prompt_list
 
 
-def get_generation_vision_x_from_retriever_indices(ice_idx_list: List[List[str]], retriever: BaseRetriever,
+def get_generation_vision_x_from_retriever_indices(idx_list, ice_idx_list: List[List[str]], retriever: BaseRetriever,
                                                    image_processor, image_field='image'):
     image_inputs = []
-    for idx, ice_idx, in enumerate(ice_idx_list):
-        image = retriever.index_ds[idx][image_field]
+    for ice_idx, idx in zip(ice_idx_list, idx_list):
+        image = retriever.test_ds[idx][image_field]
         ice_image_list = [retriever.index_ds[i][image_field] for i in ice_idx]
         ice_image_list = [image_processor(img) for img in ice_image_list] + [image_processor(image)]
         ice_image = torch.stack(ice_image_list, dim=0)
