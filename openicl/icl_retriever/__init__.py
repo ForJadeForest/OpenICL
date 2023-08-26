@@ -6,3 +6,4 @@ from .icl_topk_retriever import TopkRetriever
 from .icl_mdl_retriever import MDLRetriever
 from .icl_votek_retriever import VotekRetriever
 from .icl_zero_retriever import ZeroRetriever
+from .icl_iclm_retriever import ICLMRetriever
