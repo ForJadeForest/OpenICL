@@ -7,3 +7,4 @@ from .icl_mdl_retriever import MDLRetriever
 from .icl_votek_retriever import VotekRetriever
 from .icl_zero_retriever import ZeroRetriever
 from .icl_iclm_retriever import ICLMRetriever
+from .icl_dir_retriever import DirRetriever
