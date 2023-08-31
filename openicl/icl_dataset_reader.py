@@ -1,14 +1,18 @@
 """Simple Dataset Reader"""
 
 from typing import List, Union, Optional, Dict
+from tqdm import tqdm
 from datasets import load_dataset
 from datasets import Dataset, DatasetDict
 from transformers import AutoTokenizer
 from datasets.splits import NamedSplit
 from openicl.icl_prompt_template import PromptTemplate
 from openicl.utils.check_type import _check_dataset, _check_type_list, _check_str
+from openicl.utils.logging import get_logger
 import random
 import torch
+
+logger = get_logger(__name__)
 
 
 class DatasetReader:
@@ -115,7 +119,8 @@ class DatasetReader:
         if split is not None:
             dataset = dataset[split]
         corpus = []
-        for entry in dataset:
+        logger.info('begin generating input field corpus...')
+        for entry in tqdm(dataset):
             corpus.append(self.generate_input_field_prompt(entry))
         return corpus
 
