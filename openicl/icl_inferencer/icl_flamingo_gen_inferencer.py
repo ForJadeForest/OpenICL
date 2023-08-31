@@ -191,7 +191,7 @@ class FlamingoGenInferencer(BaseInferencer):
                 self.image_field,
             ).to(self.device)
             # 5-1. Inference with local model
-            with self.autocast_context:
+            with self.autocast_context():
                 tokenized_data = self.tokenizer.batch_encode_plus(
                     text_entry, padding=True, return_tensors='pt'
                 ).to(self.device)
