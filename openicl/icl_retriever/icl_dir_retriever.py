@@ -1,13 +1,11 @@
 '''Random Retriever'''
 
-from typing import List, Optional, Union
+from typing import List, Optional
 
-import numpy as np
 from accelerate import Accelerator
 from openicl import DatasetReader
 from openicl.icl_retriever import BaseRetriever
 from openicl.utils.logging import get_logger
-from tqdm import trange
 
 logger = get_logger(__name__)
 
@@ -40,7 +38,6 @@ class DirRetriever(BaseRetriever):
         ice_num: Optional[int] = 1,
         index_split: Optional[str] = 'train',
         test_split: Optional[str] = 'test',
-        seed: Optional[int] = 43,
         accelerator: Optional[Accelerator] = None,
     ) -> None:
         super().__init__(
@@ -54,7 +51,6 @@ class DirRetriever(BaseRetriever):
             accelerator,
         )
         self.rtr_idx_list = rtr_idx_list
-        self.seed = seed
 
     def retrieve(self):
         return self.rtr_idx_list
