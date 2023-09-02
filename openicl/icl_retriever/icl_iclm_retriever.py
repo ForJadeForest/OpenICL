@@ -9,11 +9,12 @@ from openicl import DatasetReader
 from openicl.icl_retriever import BaseRetriever
 from openicl.utils.logging import get_logger
 from tqdm import trange
+from transformers import AutoProcessor, AutoTokenizer
 
 logger = get_logger(__name__)
 
 
-class ICLMRetriever(BaseRetriever):
+class MMICLMRetriever(BaseRetriever):
     """Random In-context Learning Retriever Class
         Class of Random Retriever.
 
@@ -35,7 +36,8 @@ class ICLMRetriever(BaseRetriever):
         self,
         dataset_reader: DatasetReader,
         iclm_model: torch.nn.Module,
-        test_emb_map: dict,
+        processor,
+        tokenzier,
         ice_separator: Optional[str] = '\n',
         ice_eos_token: Optional[str] = '\n',
         prompt_eos_token: Optional[str] = '',
@@ -55,21 +57,25 @@ class ICLMRetriever(BaseRetriever):
             accelerator,
         )
         self.model = iclm_model
-        self.test_emb_map = test_emb_map
+        if isinstance(processor, str):
+            self.processor = AutoProcessor.from_pretrained(processor)
+        else:
+            self.processor = processor
+
+        if isinstance(tokenzier, str):
+            self.tokenzier = AutoTokenizer(tokenzier)
+        else:
+            self.tokenizer = tokenzier
 
     @torch.inference_mode()
-    def generation_ice_iclm(self, test_sample_emb, shot_num):
+    def generation_ice_iclm(self, test_data, shot_num):
         input_ids = None
         device = next(self.model.parameters()).device
         self.model.eval()
+        img_input = self.processor(images=test_data['image'], return_tensors='pt')
 
         for _ in range(shot_num):
-            if len(test_sample_emb.shape) == 1:
-                test_sample_emb = test_sample_emb.unsqueeze(0)
-            assert len(test_sample_emb.shape) == 2
-            outputs = self.model(
-                test_sample_embedding=test_sample_emb, seq_input_ids=input_ids
-            )
+            outputs = self.model(img_input=img_input, ice_input=input_ids)
             next_token_idx = torch.softmax(outputs.logits[:, -1, :], dim=-1).argmax(
                 dim=-1
             )
@@ -87,7 +93,7 @@ class ICLMRetriever(BaseRetriever):
         rtr_idx_list = []
         logger.info("Retrieving data for test set...")
         for i in trange(len(self.test_ds), disable=not self.is_main_process):
-            test_sample_embedding = self.test_emb_map[i]
-            idx_list = self.generation_ice_iclm(test_sample_embedding, self.ice_num)
+            test_data = self.test_ds[i]
+            idx_list = self.generation_ice_iclm(test_data, self.ice_num)
             rtr_idx_list.append(idx_list)
         return rtr_idx_list
