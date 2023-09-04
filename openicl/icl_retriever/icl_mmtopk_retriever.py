@@ -145,17 +145,13 @@ class MMTopkRetriever(BaseRetriever):
             logger.info(f'detect the img_field is str, now begin read the path')
             img_ds = ds.map(
                 lambda x: self.img_processor(
-                    images=x[Image.open(x[img_field]).convert('RGB')], return_tensors="pt"
+                    images=Image.open(x[img_field]).convert('RGB'), return_tensors="pt"
                 ),
-                batched=True,
-                batch_size=self.batch_size,
                 remove_columns=remove_columns,
             )
         elif isinstance(ds[0][img_field], Image.Image):
             img_ds = ds.map(
                 lambda x: self.img_processor(images=x[img_field], return_tensors="pt"),
-                batched=True,
-                batch_size=self.batch_size,
                 remove_columns=remove_columns,
             )
         else:
@@ -170,7 +166,7 @@ class MMTopkRetriever(BaseRetriever):
         feature_list = []
         for batch_data in bar:
             features = self.vision_encoder(
-                batch_data['pixel_values'].to(self.device)
+                batch_data['pixel_values'].squeeze(dim=1).to(self.device)
             ).image_embeds
             features /= features.norm(dim=-1, keepdim=True)
             feature_list.append(features)
