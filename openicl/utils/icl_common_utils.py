@@ -5,6 +5,7 @@ from typing import List, Union, Optional
 from openicl import PromptTemplate
 from accelerate import Accelerator
 from tqdm import tqdm
+from PIL import Image
 
 def get_dataloader(datalist: List[List], batch_size: int) -> DataLoader:
     dataloader = DataLoader(datalist, batch_size=batch_size)
@@ -40,7 +41,11 @@ def get_generation_vision_x_from_retriever_indices(idx_list, ice_idx_list: List[
     image_inputs = []
     for ice_idx, idx in zip(ice_idx_list, idx_list):
         image = retriever.test_ds[idx][image_field]
-        ice_image_list = [retriever.index_ds[i][image_field] for i in ice_idx]
+        if isinstance(image, str):
+            image = Image.open(image).convert('RGB')
+            ice_image_list = [Image.open(retriever.index_ds[i][image_field]).convert('RGB') for i in ice_idx]
+        elif isinstance(image, Image.Image):
+            ice_image_list = [retriever.index_ds[i][image_field] for i in ice_idx]
         ice_image_list = [image_processor(img) for img in ice_image_list] + [image_processor(image)]
         ice_image = torch.stack(ice_image_list, dim=0)
         image_inputs.append(ice_image)
