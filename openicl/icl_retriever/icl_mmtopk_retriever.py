@@ -78,10 +78,12 @@ class MMTopkRetriever(BaseRetriever):
         self.clip_model_name = clip_model_name
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.batch_size = batch_size
-
+        
+        logger.info(f'begin load {clip_model_name} text encodcer')
         self.text_encoder = CLIPTextModelWithProjection.from_pretrained(
             clip_model_name
         ).to(self.device)
+        logger.info(f'begin load {clip_model_name} image encodcer')
         self.vision_encoder = CLIPVisionModelWithProjection.from_pretrained(
             clip_model_name
         ).to(self.device)
@@ -89,6 +91,7 @@ class MMTopkRetriever(BaseRetriever):
         self.text_encoder.eval()
         self.vision_encoder.eval()
 
+        logger.info(f'begin load {clip_model_name} processor and tokenizer...')
         self.img_processor = AutoProcessor.from_pretrained(clip_model_name)
         self.tokenzier = AutoTokenizer.from_pretrained(clip_model_name)
 
@@ -103,8 +106,9 @@ class MMTopkRetriever(BaseRetriever):
             self.test_ds, test_field
         )
         emb_dim = self.index_features.shape[1]
-
         self.index = faiss.IndexFlatIP(emb_dim)
+        
+        logger.info(f'begin add the index for emb dim: {self.index_features.shape}')
         self.index.add(self.index_features)
 
     @torch.inference_mode()
