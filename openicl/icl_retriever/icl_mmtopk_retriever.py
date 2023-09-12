@@ -1,20 +1,17 @@
-"""Topk Retriever"""
+"""MultiModal Topk Retriever"""
 
 import copy
+import os
 from typing import Optional
 
 import faiss
-import numpy as np
 import torch
 import tqdm
 from accelerate import Accelerator
 from openicl import DatasetReader
-from openicl.icl_dataset_reader import DatasetEncoder
 from openicl.icl_retriever import BaseRetriever
-from openicl.utils.collators import DataCollatorWithPaddingAndCuda
 from openicl.utils.logging import get_logger
 from PIL import Image
-from sentence_transformers import SentenceTransformer
 from torch.utils.data import DataLoader
 from transformers import (
     AutoProcessor,
@@ -63,6 +60,7 @@ class MMTopkRetriever(BaseRetriever):
         index_field: Optional[str] = 'text',
         test_field: Optional[str] = 'image',
         batch_size: Optional[int] = 1,
+        cache_file: Optional[str] = None,
         accelerator: Optional[Accelerator] = None,
     ) -> None:
         super().__init__(
@@ -78,36 +76,64 @@ class MMTopkRetriever(BaseRetriever):
         self.clip_model_name = clip_model_name
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.batch_size = batch_size
-        
-        logger.info(f'begin load {clip_model_name} text encodcer')
+        self.mode = mode
+        self.index_field = index_field
+        self.test_field = test_field
+
+        if cache_file is None or not os.path.exists(cache_file):
+            self.create_index(cache_file)
+        else:
+            logger.info(f'cache_file: {cache_file} exist: begin loadding...')
+            features = torch.load(cache_file)
+            self.index_features = features['index_feature']
+            self.test_features = features['test_feature']
+            emb_dim = self.index_features.shape[1]
+            self.index = faiss.IndexFlatIP(emb_dim)
+            logger.info(f'begin add the index for emb dim: {self.index_features.shape}')
+            self.index.add(self.index_features)
+
+    def create_index(self, cache_file):
+        logger.info(f'begin load {self.clip_model_name} text encodcer')
         self.text_encoder = CLIPTextModelWithProjection.from_pretrained(
-            clip_model_name
+            self.clip_model_name
         ).to(self.device)
-        logger.info(f'begin load {clip_model_name} image encodcer')
+        logger.info(f'begin load {self.clip_model_name} image encodcer')
         self.vision_encoder = CLIPVisionModelWithProjection.from_pretrained(
-            clip_model_name
+            self.clip_model_name
         ).to(self.device)
 
         self.text_encoder.eval()
         self.vision_encoder.eval()
 
-        logger.info(f'begin load {clip_model_name} processor and tokenizer...')
-        self.img_processor = AutoProcessor.from_pretrained(clip_model_name)
-        self.tokenzier = AutoTokenizer.from_pretrained(clip_model_name)
+        logger.info(f'begin load {self.clip_model_name} processor and tokenizer...')
+        self.img_processor = AutoProcessor.from_pretrained(self.clip_model_name)
+        self.tokenzier = AutoTokenizer.from_pretrained(self.clip_model_name)
 
         encoding_method_map = {'i': self.encode_img, 't': self.encode_text}
-        index_encoding = mode.split('2')[1]
-        test_encoding = mode.split('2')[0]
+        index_encoding = self.mode.split('2')[1]
+        test_encoding = self.mode.split('2')[0]
 
         self.index_features = encoding_method_map[index_encoding](
-            self.index_ds, index_field
+            self.index_ds, self.index_field
         )
         self.test_features = encoding_method_map[test_encoding](
-            self.test_ds, test_field
+            self.test_ds, self.test_field
         )
+
+        cache_feature = {
+            'index_features': self.index_features,
+            'test_features': self.test_features,
+            'meta_info': {
+                'clip_model_name': self.clip_model_name,
+                'mode': self.mode,
+                'index_field': self.index_field,
+                'test_field': self.test_field,
+            },
+        }
+        torch.save(cache_feature, cache_file)
         emb_dim = self.index_features.shape[1]
         self.index = faiss.IndexFlatIP(emb_dim)
-        
+
         logger.info(f'begin add the index for emb dim: {self.index_features.shape}')
         self.index.add(self.index_features)
 
