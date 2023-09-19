@@ -85,8 +85,8 @@ class MMTopkRetriever(BaseRetriever):
         else:
             logger.info(f'cache_file: {cache_file} exist: begin loadding...')
             features = torch.load(cache_file)
-            self.index_features = features['index_feature']
-            self.test_features = features['test_feature']
+            self.index_features = features['index_features']
+            self.test_features = features['test_features']
             emb_dim = self.index_features.shape[1]
             self.index = faiss.IndexFlatIP(emb_dim)
             logger.info(f'begin add the index for emb dim: {self.index_features.shape}')
