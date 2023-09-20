@@ -1,12 +1,12 @@
-from typing import List, Optional, Dict, Union
+import json
+from typing import Dict, List, Optional, Union
 
 import more_itertools
-import json
 import torch
 from accelerate import Accelerator
+from datasets import Dataset
 from tqdm import tqdm
 from transformers import PretrainedConfig
-from datasets import Dataset
 
 from openicl import PromptTemplate
 from openicl.icl_inferencer.icl_base_inferencer import (
@@ -191,7 +191,7 @@ class FlamingoGenInferencer(BaseInferencer):
                 self.image_field,
             ).to(self.device)
             # 5-1. Inference with local model
-            with self.autocast_context():
+            with self.autocast_context:
                 tokenized_data = self.tokenizer.batch_encode_plus(
                     text_entry, padding=True, return_tensors='pt'
                 ).to(self.device)
