@@ -208,6 +208,8 @@ class FlamingoGenInferencerFast(BaseInferencer):
                 'gen_field_replace_token': self.gen_field_replace_token,
             },
         )
+
+        test_ds_ = test_ds.map()
         test_ds_ = test_ds_.cast_column(self.image_field, datasets.Image(decode=True))
 
         def prepare(examples):
