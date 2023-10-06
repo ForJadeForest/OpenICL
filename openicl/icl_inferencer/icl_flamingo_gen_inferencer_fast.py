@@ -245,6 +245,7 @@ class FlamingoGenInferencerFast(BaseInferencer):
         )
 
         output_handler.save_orgin_prompts(test_ds['prompt'])
+        output_handler.save_origin_info('ice_idx', test_ds)
         for fields in self.other_save_field:
             output_handler.save_origin_info(fields, retriever.test_ds)
 
