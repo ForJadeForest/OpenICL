@@ -199,7 +199,6 @@ class FlamingoGenInferencerFast(BaseInferencer):
             concat_prompt,
             with_indices=True,
             batched=True,
-            num_proc=self.num_proc,
             batch_size=self.preprocessor_bs,
             fn_kwargs={
                 'retriever': retriever,
