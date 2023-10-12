@@ -60,6 +60,7 @@ class MMTopkRetriever(BaseRetriever):
         index_field: Optional[str] = 'text',
         test_field: Optional[str] = 'image',
         batch_size: Optional[int] = 1,
+        num_workers: Optional[int] = 0,
         cache_file: Optional[str] = None,
         accelerator: Optional[Accelerator] = None,
     ) -> None:
@@ -76,6 +77,7 @@ class MMTopkRetriever(BaseRetriever):
         self.clip_model_name = clip_model_name
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.batch_size = batch_size
+        self.num_workers = num_workers
         self.mode = mode
         self.index_field = index_field
         self.test_field = test_field
@@ -169,27 +171,26 @@ class MMTopkRetriever(BaseRetriever):
 
     @torch.inference_mode()
     def encode_img(self, ds, img_field):
+        import datasets
+
         logger.info(f'now begin processor img field: {img_field}')
-        remove_columns = ds.column_names
-        if isinstance(ds[0][img_field], str):
-            logger.info(f'detect the img_field is str, now begin read the path')
-            img_ds = ds.map(
-                lambda x: self.img_processor(
-                    images=Image.open(x[img_field]).convert('RGB'), return_tensors="pt"
-                ),
-                remove_columns=remove_columns,
-            )
-        elif isinstance(ds[0][img_field], Image.Image):
-            img_ds = ds.map(
-                lambda x: self.img_processor(images=x[img_field], return_tensors="pt"),
-                remove_columns=remove_columns,
-            )
-        else:
-            raise ValueError(
-                f'the data in image field should be str or PIL.Image.Image, but got {type(ds[0][img_field])}'
-            )
-        img_ds.set_format(type="torch", columns=["pixel_values"])
-        dataloader = DataLoader(img_ds, batch_size=self.batch_size, shuffle=False)
+
+        ds_ = ds.map()
+        ds_ = ds_.cast_column(img_field, datasets.Image(decode=True))
+
+        def prepare(examples):
+            images = [i for i in examples[img_field]]
+            data_dict = {}
+
+            data_dict['pixel_values'] = self.img_processor(
+                images=images,
+                return_tensors="pt",
+            )['pixel_values']
+            return data_dict
+
+        ds_.set_transform(prepare)
+
+        dataloader = DataLoader(ds_, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)
         logger.info(f'use {self.clip_model_name} to encode the img field: {img_field}')
         bar = tqdm.tqdm(dataloader, disable=not self.is_main_process)
 
