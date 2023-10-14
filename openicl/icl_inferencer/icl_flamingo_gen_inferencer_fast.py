@@ -251,7 +251,7 @@ class FlamingoGenInferencerFast(BaseInferencer):
 
         # 4. Inference for prompts in each batch
         logger.info("Starting inference process...")
-        for data in tqdm(dataloader, disable=not self.is_main_process):
+        for data in tqdm(dataloader, disable=not self.is_main_process, ncols=100):
             # 5-1. Inference with local model
             with self.autocast_context:
                 prompt_len = int(data['attention_mask'].shape[1])
