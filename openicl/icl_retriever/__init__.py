@@ -2,7 +2,6 @@ from .icl_base_retriever import BaseRetriever
 from .icl_bm25_retriever import BM25Retriever
 from .icl_dir_retriever import DirRetriever
 from .icl_dpp_retriever import DPPRetriever
-from .icl_iclm_retriever import MMICLMRetriever
 from .icl_mdl_retriever import MDLRetriever
 from .icl_mmtopk_retriever import MMTopkRetriever
 from .icl_random_retriever import RandomRetriever
