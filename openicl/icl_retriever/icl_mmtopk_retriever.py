@@ -62,6 +62,7 @@ class MMTopkRetriever(BaseRetriever):
         batch_size: Optional[int] = 1,
         num_workers: Optional[int] = 0,
         cache_file: Optional[str] = None,
+        reversed_order: Optional[str] = False,
         accelerator: Optional[Accelerator] = None,
     ) -> None:
         super().__init__(
@@ -81,6 +82,7 @@ class MMTopkRetriever(BaseRetriever):
         self.mode = mode
         self.index_field = index_field
         self.test_field = test_field
+        self.reversed_order = reversed_order
 
         if cache_file is None or not os.path.exists(cache_file):
             self.create_index(cache_file)
@@ -206,4 +208,6 @@ class MMTopkRetriever(BaseRetriever):
 
     def retrieve(self):
         idx_list = self.index.search(self.test_features, self.ice_num)[1].tolist()
+        if self.reversed_order: 
+            idx_list = [list(reversed(i)) for i in idx_list]
         return idx_list
