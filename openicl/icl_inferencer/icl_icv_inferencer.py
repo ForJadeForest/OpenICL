@@ -40,7 +40,7 @@ class ICVPPLInferencer(BaseInferencer):
     def __init__(
         self,
         icv_encoder,
-        icv_encoder_tokenizer,
+        icv_tokenizer,
         model_name: Optional[str] = "gpt2-xl",
         tokenizer_name: Optional[str] = None,
         max_model_token_num: Optional[int] = None,
@@ -71,7 +71,7 @@ class ICVPPLInferencer(BaseInferencer):
         )
         self.labels = labels
         self.icv_encoder = icv_encoder
-        self.icv_encoder_tokenizer = icv_encoder_tokenizer
+        self.icv_tokenizer = icv_tokenizer
 
     def inference(
         self,
@@ -95,6 +95,7 @@ class ICVPPLInferencer(BaseInferencer):
 
         # 2. Get results of retrieval process
         ice_idx_list = retriever.retrieve()
+        shot_num = len(ice_idx_list[0])
 
         # 3. Get labels of all the classes
         if self.labels is None:
@@ -142,9 +143,23 @@ class ICVPPLInferencer(BaseInferencer):
                 sub_query_prompt = query_prompt_list[idx : idx + self.batch_size]
 
                 with torch.no_grad():
+                    inputs = self.icv_tokenizer(
+                        sub_ice_list,
+                        padding=True,
+                        return_tensors="pt",
+                        truncation=True,
+                    )
+                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                    icv_outputs = self.icv_encoder(
+                        inputs,
+                        shot_num=torch.tensor(
+                            [shot_num for _ in range(self.batch_size)]
+                        ),
+                    )
                     sub_res = self.__get_ppl(
-                        ice_input_texts=sub_ice_list,
                         query_input=sub_query_prompt,
+                        in_context_vector=icv_outputs.in_context_vector,
+                        alpha=icv_outputs.alpha,
                     ).tolist()
                 for res, prompt in zip(sub_res, sub_query_prompt):
                     sub_ppl_list.append(res)
@@ -172,23 +187,23 @@ class ICVPPLInferencer(BaseInferencer):
         return [sample["prediction"] for sample in output_handler.results_dict.values()]
 
     def __get_ppl(
-        self, ice_input_texts: List[str], query_input: List[str], mask_length=None
+        self,
+        query_input: List[str],
+        in_context_vector,
+        alpha,
+        mask_length=None,
     ):
 
         self.tokenizer.padding_side = "right"
-        inputs = self.icv_encoder_tokenizer(
-            ice_input_texts, padding=True, return_tensors="pt", truncation=True
-        )
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        icv_feature = self.icv_encoder(inputs)
+
         query_input = self.tokenizer(
             query_input, padding=True, return_tensors="pt", truncation=True
         )
         query_input = {k: v.to(self.device) for k, v in query_input.items()}
         outputs = self.model(
             **query_input,
-            in_context_vector=icv_feature,
-            alpha=self.icv_encoder.get_alpha(),
+            in_context_vector=in_context_vector,
+            alpha=alpha,
         )
 
         shift_logits = outputs.logits[..., :-1, :].contiguous()
