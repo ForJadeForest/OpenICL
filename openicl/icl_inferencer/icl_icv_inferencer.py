@@ -152,9 +152,7 @@ class ICVPPLInferencer(BaseInferencer):
                     inputs = {k: v.to(self.device) for k, v in inputs.items()}
                     icv_outputs = self.icv_encoder(
                         inputs,
-                        shot_num=torch.tensor(
-                            [shot_num for _ in range(self.batch_size)]
-                        ),
+                        torch.tensor([shot_num for _ in range(self.batch_size)]),
                     )
                     sub_res = self.__get_ppl(
                         query_input=sub_query_prompt,
