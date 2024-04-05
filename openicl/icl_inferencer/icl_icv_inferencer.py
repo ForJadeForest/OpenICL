@@ -52,6 +52,7 @@ class ICVPPLInferencer(BaseInferencer):
         api_name: Optional[str] = None,
         labels: Optional[List] = None,
         model_parallel: Optional[bool] = False,
+        concat_prompt=True,
         device="cuda",
         **kwargs,
     ) -> None:
@@ -71,6 +72,7 @@ class ICVPPLInferencer(BaseInferencer):
         )
         self.labels = labels
         self.icv_encoder = icv_encoder
+        self.concat_prompt = concat_prompt
         self.icv_tokenizer = icv_tokenizer
 
     def inference(
@@ -140,6 +142,12 @@ class ICVPPLInferencer(BaseInferencer):
                 disable=not self.is_main_process,
             ):
                 sub_ice_list = ice[idx : idx + self.batch_size]
+
+                if not self.concat_prompt:
+                    ice_input = []
+                    for i in sub_ice_list:
+                        ice_input.extend(i.split(retriever.ice_separator)[:-1])
+                    sub_ice_list = ice_input
                 sub_query_prompt = query_prompt_list[idx : idx + self.batch_size]
 
                 with torch.no_grad():
