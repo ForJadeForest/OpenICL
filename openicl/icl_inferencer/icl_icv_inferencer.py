@@ -143,17 +143,21 @@ class ICVPPLInferencer(BaseInferencer):
                 sub_query_prompt = query_prompt_list[idx : idx + self.batch_size]
 
                 with torch.no_grad():
-                    inputs = self.icv_tokenizer(
-                        sub_ice_list,
-                        padding=True,
-                        return_tensors="pt",
-                        truncation=True,
-                    )
-                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                    icv_outputs = self.icv_encoder(
-                        inputs,
-                        torch.tensor([shot_num for _ in range(self.batch_size)]),
-                    )
+                    if self.icv_tokenizer is not None:
+                        inputs = self.icv_tokenizer(
+                            sub_ice_list,
+                            padding=True,
+                            return_tensors="pt",
+                            truncation=True,
+                        )
+                        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                        icv_outputs = self.icv_encoder(
+                            inputs,
+                            torch.tensor([shot_num for _ in range(self.batch_size)]),
+                        )
+                    else:
+                        # It's single_icv_encoder
+                        icv_outputs = self.icv_encoder(None, None)
                     sub_res = self.__get_ppl(
                         query_input=sub_query_prompt,
                         in_context_vector=icv_outputs.in_context_vector,
